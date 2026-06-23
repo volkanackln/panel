@@ -5,6 +5,10 @@ import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { Loader2, Eye, EyeOff, MapPin, Save, Navigation, Plus, Trash2, Search, Crosshair, Layers, Radar, Copy, ArrowRight, Hash, CheckCircle2, AlertCircle, Zap, ChevronDown } from 'lucide-react';
 
+// 🔧 PropertyForm2 sayfasının route'u. Projenizdeki gerçek route farklıysa
+// SADECE bu satırı güncellemeniz yeterli — kodun başka hiçbir yerine dokunmanıza gerek yok.
+const PROPERTY_FORM_2_PATH = (propertyId) => `/properties/step2/${propertyId}`;
+
 const BASE_CATEGORIES = ['Denize', 'Merkeze', 'Havalimanı', 'AVM / Market'];
 
 // ─── YARDIMCI FONKSİYONLAR VE FORMATLAYICILAR ──────────────────────────────────
@@ -268,8 +272,12 @@ export default function PropertyForm() {
       queryClient.invalidateQueries({ queryKey: ['all-properties-for-validation'] });
       toast.success('Tüm konum verileri veritabanına mühürlendi!');
       const savedId = res?.id || res?.[0]?.id || res?.data?.id || id;
-      if (isNew && savedId !== 'new') navigate(`/properties/${savedId}`);
-      else navigate('/properties');
+      // ⚡ Kaydet ve Sonraki Adıma Geç: PropertyForm2'ye (2. adım) yönlendir
+      if (savedId && savedId !== 'new') {
+        navigate(PROPERTY_FORM_2_PATH(savedId));
+      } else {
+        navigate('/properties');
+      }
     },
   });
 

@@ -8,21 +8,61 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { 
-  ArrowLeft, Save, Loader2, ShieldCheck, LayoutGrid, Building2,
+  ArrowLeft, Save, Loader2, LayoutGrid, Building2,
   Plus, ChevronUp, Info, Bed, Maximize2, Bath, DoorOpen, Sofa, Layers, Tag, Rocket, Wallet,
-  CheckCircle2, Search, Sparkles
+  CheckCircle2, Search, Sparkles, Award, ShieldCheck, Waves, Tv, Anchor
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
-import SeoAutoFill from '@/components/seo/SeoAutoFill';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'TRY'];
+
+const BASE_CATEGORIES = ['Denize', 'Merkeze', 'Havalimanı', 'AVM / Market'];
 
 const INITIAL_ROOM_TYPE = {
   bedrooms: '', size_sqm: '', bathrooms: '', balcony: '', salon: '', 
   floor_number: '', sub_type: '', boost: 'Default', price: '', 
   currency: 'USD', old_price: '', commission: ''
+};
+
+const formatMetersValue = (m) => {
+  const num = Number(m);
+  if (isNaN(num)) return m;
+  return num >= 1000 ? `${(num / 1000).toFixed(2)} km` : `${num} m`;
+};
+
+// SEO JSON anahtarlarını normalize eder: hem "url_slug" hem "URL Slug" / "Url Slug"
+// gibi varyasyonları kabul edip tek bir standart objeye dönüştürür.
+const SEO_FIELD_ALIASES = {
+  slug: ['url_slug', 'urlslug', 'url slug', 'slug'],
+  seo_title: ['seo_title', 'seotitle', 'seo title'],
+  meta_title: ['meta_title', 'metatitle', 'meta title'],
+  meta_description: ['meta_description', 'metadescription', 'meta description'],
+  seo_content: ['seo_content', 'seocontent', 'seo content'],
+};
+
+const normalizeKey = (key) => key.toLowerCase().trim();
+
+const normalizeSeoJson = (raw) => {
+  // raw: JSON.parse'dan gelen ham obje (anahtarlar herhangi bir case/format'ta olabilir)
+  const lookup = {};
+  Object.keys(raw).forEach(k => {
+    lookup[normalizeKey(k)] = raw[k];
+  });
+
+  const result = {};
+  Object.entries(SEO_FIELD_ALIASES).forEach(([targetField, aliases]) => {
+    for (const alias of aliases) {
+      const normalizedAlias = normalizeKey(alias);
+      if (lookup[normalizedAlias] !== undefined && lookup[normalizedAlias] !== '') {
+        result[targetField] = lookup[normalizedAlias];
+        break;
+      }
+    }
+  });
+
+  return result;
 };
 
 export default function PropertyForm2() {
@@ -31,17 +71,36 @@ export default function PropertyForm2() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('specs');
   const [featureSearch, setFeatureSearch] = useState('');
+  const [bulkFeaturesText, setBulkFeaturesText] = useState('');
+  
+  const [gemJsonInput, setGemJsonInput] = useState('');
+
+  const [seoJsonInput, setSeoJsonInput] = useState('');
+  const [showSeoJsonBox, setShowSeoJsonBox] = useState(false);
+
+  const seoJsonPreview = useMemo(() => {
+    if (!seoJsonInput.trim()) return null;
+    try {
+      const cleanInput = seoJsonInput.trim().replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleanInput);
+      const normalized = normalizeSeoJson(parsed);
+      return { data: normalized, error: null };
+    } catch (err) {
+      return { data: null, error: 'Geçersiz JSON formatı' };
+    }
+  }, [seoJsonInput]);
 
   const [form, setForm] = useState({
     title: '', slug: '', type: 'apartment', sub_type: '',
     price: '', currency: 'USD', bedrooms: '', bathrooms: '', size_sqm: '',
-    sea_view: false, seafront: false, citizenship_eligible: false, residency_eligible: false,
+    sea_view: false, seafront: false, near_the_sea: false, citizenship_eligible: false, residency_eligible: false,
     description: '', features: [], main_image: '', featured: false,
     floor_number: '',
     market_status: 'For Sale', balcony: '', salon: '', boost: 'Default', old_price: '', commission: '',
-    construction_year: '', total_sqm: '', block_count: '', floor_count: '',
+    project_name: '', construction_year: '', total_sqm: '', block_count: '', floor_count: '',
     developer_company: '', list_link_1: '', list_link_2: '',
     payment_down: 100, payment_under_construction: 0, payment_delivery: 0, payment_installment: 0,
+    seo_title: '', meta_title: '', meta_description: '', seo_content: '',
     room_types: [{ ...INITIAL_ROOM_TYPE }]
   });
 
@@ -90,7 +149,7 @@ export default function PropertyForm2() {
     mutationFn: (data) => base44.entities.Property.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['properties'] });
-      toast.success('Mülk portföy detayları başarıyla tamamlandı ve mühürlendi! ☁️');
+      toast.success('Mülk portföy detayları başarıyla tamamlandı!');
       navigate('/properties');
     },
   });
@@ -129,12 +188,178 @@ export default function PropertyForm2() {
     set('construction_year', val);
   };
 
+  const handleApplyGemProjectDetails = () => {
+    if (!gemJsonInput.trim()) return;
+
+    try {
+      const parsedData = JSON.parse(gemJsonInput.trim());
+      
+      setForm(prev => ({
+        ...prev,
+        project_name: parsedData.proje_adi || prev.project_name,
+        construction_year: parsedData.insaat_yili ? String(parsedData.insaat_yili) : prev.construction_year,
+        total_sqm: parsedData.toplam_m2 || prev.total_sqm,
+        block_count: parsedData.blok_sayisi || prev.block_count,
+        floor_count: parsedData.kat_sayisi || prev.floor_count,
+        title: prev.title || parsedData.proje_adi || ''
+      }));
+
+      toast.success('Gem proje detayları başarıyla alanlara yüklendi!');
+      setGemJsonInput('');
+    } catch (error) {
+      toast.error('Geçersiz JSON formatı! Lütfen Gem çıktısını eksiksiz kopyaladığınızdan emin olun.');
+    }
+  };
+
+  // ✅ DÜZELTİLDİ: meta_title, meta_description ve seo_content artık doğru aktarılıyor
+  // ✅ DÜZELTİLDİ: JSON anahtarları artık hem "url_slug" hem "URL Slug" gibi
+  //    farklı case/format varyasyonlarında da tanınıyor (normalizeSeoJson ile).
+  const handleApplySeoJson = () => {
+    if (!seoJsonInput.trim()) return;
+
+    try {
+      const cleanInput = seoJsonInput
+        .trim()
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
+      const parsedData = JSON.parse(cleanInput);
+      const normalized = normalizeSeoJson(parsedData);
+
+      if (Object.keys(normalized).length === 0) {
+        toast.error('JSON içinde tanınan bir SEO alanı bulunamadı (url_slug, seo_title, meta_title, meta_description, seo_content).');
+        return;
+      }
+
+      setForm(prev => ({
+        ...prev,
+        ...(normalized.slug !== undefined && { slug: normalized.slug }),
+        ...(normalized.seo_title !== undefined && { seo_title: normalized.seo_title }),
+        ...(normalized.meta_title !== undefined && { meta_title: normalized.meta_title }),
+        ...(normalized.meta_description !== undefined && { meta_description: normalized.meta_description }),
+        ...(normalized.seo_content !== undefined && { seo_content: normalized.seo_content }),
+      }));
+
+      toast.success('SEO verileri başarıyla alanlara aktarıldı!');
+      setSeoJsonInput('');
+      setShowSeoJsonBox(false);
+    } catch (error) {
+      console.error('SEO JSON parse error:', error);
+      toast.error('JSON parse hatası: ' + error.message);
+    }
+  };
+
   const handleToggleFeature = (featureSlug) => {
     const currentFeatures = form.features || [];
-    if (currentFeatures.includes(featureSlug)) {
-      set('features', currentFeatures.filter(f => f !== featureSlug));
+    const isSelected = currentFeatures.includes(featureSlug);
+    const updatedFeatures = isSelected 
+      ? currentFeatures.filter(f => f !== featureSlug)
+      : [...currentFeatures, featureSlug];
+
+    const slugLower = featureSlug.toLowerCase();
+    let dynamicBooleans = {};
+    
+    if (slugLower.includes('citizen') || slugLower.includes('vatandas')) dynamicBooleans.citizenship_eligible = !isSelected;
+    if (slugLower.includes('residen') || slugLower.includes('ikamet')) dynamicBooleans.residency_eligible = !isSelected;
+    if (slugLower.includes('sea-view') || slugLower.includes('deniz-manz')) dynamicBooleans.sea_view = !isSelected;
+    if (slugLower.includes('seafront') || slugLower.includes('denize-sifir')) dynamicBooleans.seafront = !isSelected;
+    if (slugLower.includes('near-sea') || slugLower.includes('denize-yakin')) dynamicBooleans.near_the_sea = !isSelected;
+
+    setForm(prev => ({
+      ...prev,
+      features: updatedFeatures,
+      ...dynamicBooleans
+    }));
+  };
+
+  const handleToggleSpecialFeature = (type) => {
+    const findSlug = (keyword) => allFeatures.find(f => f.slug?.toLowerCase().includes(keyword) || f.name?.toLowerCase().includes(keyword))?.slug || keyword;
+
+    setForm(prev => {
+      let updatedFeatures = [...(prev.features || [])];
+      let updates = {};
+
+      const toggleSlugHelper = (slug, forceState) => {
+        if (forceState && !updatedFeatures.includes(slug)) updatedFeatures.push(slug);
+        if (!forceState) updatedFeatures = updatedFeatures.filter(x => x !== slug);
+      };
+
+      if (type === 'citizenship') {
+        const nextVal = !prev.citizenship_eligible;
+        updates.citizenship_eligible = nextVal;
+        toggleSlugHelper(findSlug('citizen'), nextVal);
+      } else if (type === 'residency') {
+        const nextVal = !prev.residency_eligible;
+        updates.residency_eligible = nextVal;
+        toggleSlugHelper(findSlug('residen'), nextVal);
+      } else if (type === 'sea_view') {
+        const nextVal = !prev.sea_view;
+        updates.sea_view = nextVal;
+        toggleSlugHelper(findSlug('sea-view'), nextVal);
+      } else if (type === 'seafront') {
+        const nextVal = !prev.seafront;
+        updates.seafront = nextVal;
+        toggleSlugHelper(findSlug('seafront'), nextVal);
+      } else if (type === 'near_the_sea') {
+        const nextVal = !prev.near_the_sea;
+        updates.near_the_sea = nextVal;
+        toggleSlugHelper(findSlug('near-sea') || findSlug('denize-yakin') || 'near-the-sea', nextVal);
+      } else if (type === 'furniture') {
+        const slug = findSlug('furnit') || findSlug('mobilya') || 'furniture';
+        const nextVal = !updatedFeatures.includes(slug);
+        toggleSlugHelper(slug, nextVal);
+      } else if (type === 'white_goods') {
+        const slug = findSlug('white-goods') || findSlug('beyaz-esya') || 'white-goods';
+        const nextVal = !updatedFeatures.includes(slug);
+        toggleSlugHelper(slug, nextVal);
+      }
+
+      return { ...prev, ...updates, features: updatedFeatures };
+    });
+  };
+
+  const isCitizenshipActive = useMemo(() => form.citizenship_eligible || form.features?.some(f => f.toLowerCase().includes('citizen') || f.toLowerCase().includes('vatandas')), [form.citizenship_eligible, form.features]);
+  const isResidencyActive = useMemo(() => form.residency_eligible || form.features?.some(f => f.toLowerCase().includes('residen') || f.toLowerCase().includes('ikamet')), [form.residency_eligible, form.features]);
+  const isSeaViewActive = useMemo(() => form.sea_view || form.features?.some(f => f.toLowerCase().includes('sea-view') || f.toLowerCase().includes('deniz-manz')), [form.sea_view, form.features]);
+  const isSeafrontActive = useMemo(() => form.seafront || form.features?.some(f => f.toLowerCase().includes('seafront') || f.toLowerCase().includes('denize-sifir')), [form.seafront, form.features]);
+  const isNearTheSeaActive = useMemo(() => form.near_the_sea || form.features?.some(f => f.toLowerCase().includes('near-sea') || f.toLowerCase().includes('denize-yakin')), [form.near_the_sea, form.features]);
+  const isFurnitureActive = useMemo(() => form.features?.some(f => f.toLowerCase().includes('furnit') || f.toLowerCase().includes('esya') || f.toLowerCase().includes('mobilya')), [form.features]);
+  const isWhiteGoodsActive = useMemo(() => form.features?.some(f => f.toLowerCase().includes('white-goods') || f.toLowerCase().includes('beyaz-esya')), [form.features]);
+
+  const handleApplyBulkFeatures = () => {
+    if (!bulkFeaturesText.trim()) return;
+
+    const inputNames = bulkFeaturesText
+      .split(/,|\n/)
+      .map(name => name.trim().toLowerCase())
+      .filter(Boolean);
+
+    const matchedSlugs = allFeatures
+      .filter(feat => feat.name && inputNames.includes(feat.name.toLowerCase().trim()))
+      .map(feat => feat.slug);
+
+    if (matchedSlugs.length > 0) {
+      setForm(f => {
+        const currentFeatures = f.features || [];
+        const combinedFeatures = Array.from(new Set([...currentFeatures, ...matchedSlugs]));
+        
+        let extraBooleans = {};
+        matchedSlugs.forEach(slug => {
+          const s = slug.toLowerCase();
+          if (s.includes('citizen') || s.includes('vatandas')) extraBooleans.citizenship_eligible = true;
+          if (s.includes('residen') || s.includes('ikamet')) extraBooleans.residency_eligible = true;
+          if (s.includes('sea-view') || s.includes('deniz-manz')) extraBooleans.sea_view = true;
+          if (s.includes('seafront') || s.includes('denize-sifir')) extraBooleans.seafront = true;
+          if (s.includes('near-sea') || s.includes('denize-yakin')) extraBooleans.near_the_sea = true;
+        });
+
+        return { ...f, features: combinedFeatures, ...extraBooleans };
+      });
+      toast.success(`${matchedSlugs.length} adet yeni özellik başarıyla seçildi!`);
+      setBulkFeaturesText('');
     } else {
-      set('features', [...currentFeatures, featureSlug]);
+      toast.error('Girdiğiniz kelimelerle eşleşen bir sistem özelliği bulunamadı.');
     }
   };
 
@@ -148,16 +373,53 @@ export default function PropertyForm2() {
     return allFeatures.filter(feat => form.features?.includes(feat.slug));
   }, [allFeatures, form.features]);
 
-  // Sadece içi dolu olan alanları liste düzeninde HTML olarak basan motor
+  function buildLocationDistanceHtml() {
+    const hasLocation = form.country || form.city || form.district || form.neighborhood;
+    const hasDistances = Array.isArray(form.distances) && form.distances.some(d => d.meters);
+
+    if (!hasLocation && !hasDistances) return '';
+
+    let html = `<h3><strong>Konum ve Mesafe Bilgileri</strong></h3>`;
+
+    if (hasLocation) {
+      html += `<ul>`;
+      const parts = [form.country, form.city, form.district, form.neighborhood].filter(Boolean);
+      html += `<li><strong>Konum:</strong> ${parts.join(' / ')}</li>`;
+      html += `</ul>`;
+    }
+
+    if (hasDistances) {
+      html += `<h4><strong>Ulaşım Noktaları ve Önemli Mesafeler</strong></h4><ul>`;
+
+      BASE_CATEGORIES.forEach(cat => {
+        const meters = form.distances?.find(d => d.label === cat)?.meters;
+        if (!meters) return;
+        if (cat === 'Havalimanı' && form.selected_airport_name) {
+          html += `<li>${form.selected_airport_name}: ${formatMetersValue(meters)}</li>`;
+        } else {
+          html += `<li>${cat}: ${formatMetersValue(meters)}</li>`;
+        }
+      });
+
+      form.distances?.forEach(d => {
+        if (BASE_CATEGORIES.includes(d.label) || !d.meters) return;
+        html += `<li>${d.label}: ${formatMetersValue(d.meters)}</li>`;
+      });
+
+      html += `</ul>`;
+    }
+
+    return html;
+  }
+
   const handleAutoGenerateDescription = () => {
-    let html = `<h2><strong>🏢 ${form.project_name || form.title || 'Gayrimenkul Tanıtım Portföyü'}</strong></h2>`;
+    const targetProjectName = form.project_name || form.title || 'Gayrimenkul Tanıtım Portföyü';
+    let html = `<h2><strong>Mülk Adı: ${targetProjectName}</strong></h2>`;
     html += `<p>${form.property_ref ? `Ref No: <strong>${form.property_ref}</strong> | ` : ''} Durum: <strong>${form.market_status || 'For Sale'}</strong></p>`;
     
-    // 1. Genel Proje ve Yapı Bilgileri
-    if (form.type || form.developer_company || form.construction_year || form.total_sqm || form.block_count || form.floor_count) {
-      html += `<h3>📌 Genel Proje ve Yapı Bilgileri</h3><ul>`;
+    if (form.type || form.construction_year || form.total_sqm || form.block_count || form.floor_count) {
+      html += `<h3><strong>Genel Proje ve Yapı Bilgileri</strong></h3><ul>`;
       if (form.type) html += `<li><strong>Mülk Tipi:</strong> ${form.type.toUpperCase()} ${form.sub_type ? `(${form.sub_type})` : ''}</li>`;
-      if (form.developer_company) html += `<li><strong>Geliştirici Şirket:</strong> ${form.developer_company}</li>`;
       if (form.construction_year) html += `<li><strong>İnşaat / Teslim Yılı:</strong> ${form.construction_year}</li>`;
       if (form.total_sqm) html += `<li><strong>Toplam Proje Alanı:</strong> ${form.total_sqm} m²</li>`;
       if (form.block_count) html += `<li><strong>Blok Sayısı:</strong> ${form.block_count}</li>`;
@@ -165,46 +427,42 @@ export default function PropertyForm2() {
       html += `</ul>`;
     }
 
-    // 2. Yasal Avantajlar & Durum Kriterleri
-    if (form.citizenship_eligible || form.residency_eligible || form.sea_view || form.seafront) {
-      html += `<h3>⚖️ Yasal Avantajlar & Konum Özellikleri</h3><ul>`;
-      if (form.citizenship_eligible) html += `<li>🇹🇷 Türk Vatandaşlığı şartlarına uygundur.</li>`;
-      if (form.residency_eligible) html += `<li>🪪 İkamet izni kriterlerini karşılar.</li>`;
-      if (form.sea_view) html += `<li>🌊 Kapanmaz deniz manzarasına sahiptir.</li>`;
-      if (form.seafront) html += `<li>🏖️ Denize sıfır konumdadır.</li>`;
+    const getFeatureDbName = (keyword, defaultName) => {
+      return allFeatures.find(f => f.slug?.toLowerCase().includes(keyword) || f.name?.toLowerCase().includes(keyword))?.name || defaultName;
+    };
+
+    if (isCitizenshipActive || isResidencyActive || isSeaViewActive || isSeafrontActive || isNearTheSeaActive) {
+      html += `<h3><strong>Öne Çıkan Özellikler</strong></h3><ul>`;
+      if (isCitizenshipActive) html += `<li>${getFeatureDbName('citizen', 'Citizenship')}</li>`;
+      if (isResidencyActive) html += `<li>${getFeatureDbName('residen', 'Residence Permit')}</li>`;
+      if (isSeaViewActive) html += `<li>${getFeatureDbName('sea-view', 'Sea View')}</li>`;
+      if (isSeafrontActive) html += `<li>${getFeatureDbName('seafront', 'Seafront')}</li>`;
+      if (isNearTheSeaActive) html += `<li>${getFeatureDbName('near-sea', 'Near the Sea')}</li>`;
       html += `</ul>`;
     }
 
-    // 3. Oda Tipleri & Fiyatlandırma (YENİ LİSTE FORMATI)
-    if (form.room_types && form.room_types.some(room => room.bedrooms || room.price || room.size_sqm)) {
-      html += `<h3>🛏️ Mevcut Oda Tipleri & Fiyatlandırma</h3>`;
+    if (form.room_types && form.room_types.some(room => room.bedrooms || room.size_sqm)) {
+      html += `<h3><strong>Mevcut Oda Tipleri</strong></h3>`;
       
       form.room_types.forEach((room) => {
-        if (!room.bedrooms && !room.price && !room.size_sqm) return;
-        
-        const symbol = room.currency === 'EUR' ? '€' : room.currency === 'USD' ? '$' : room.currency === 'GBP' ? '£' : '₺';
-        const currencyEmoji = room.currency === 'EUR' ? '💶' : room.currency === 'USD' ? '💵' : room.currency === 'GBP' ? '💷' : '🪙';
-        const formattedPrice = room.price ? `${Number(room.price).toLocaleString('tr-TR')} ${symbol}` : 'Fiyat Bilgisi Alınız';
+        if (!room.bedrooms && !room.size_sqm) return;
         
         html += `<p style="line-height: 1.6; margin-bottom: 18px;">`;
-        html += `🏠 <strong>Oda Planı:</strong> ${room.bedrooms || 0}+${room.salon || 0} ${room.sub_type || ''}<br />`;
-        if (room.size_sqm) html += `📐 <strong>Net Alan:</strong> ${room.size_sqm} m²<br />`;
+        html += `<strong>Oda Planı:</strong> ${room.bedrooms || 0}+${room.salon || 0} ${room.sub_type || ''}<br />`;
+        if (room.size_sqm) html += `<strong>Net Alan:</strong> ${room.size_sqm} m²<br />`;
         
         if (room.floor_number || room.bathrooms || room.balcony) {
-          html += `🏗️ <strong>Yapı Detayları:</strong><br /><br />`;
+          html += `<strong>Yapı Detayları:</strong><br />`;
           if (room.floor_number) html += `Kat: ${room.floor_number}<br />`;
           if (room.bathrooms) html += `Banyo: ${room.bathrooms}<br />`;
           if (room.balcony) html += `Balkon: ${room.balcony}<br />`;
         }
-        
-        html += `${currencyEmoji} <strong>Fiyat:</strong> ${formattedPrice}`;
         html += `</p>`;
       });
     }
 
-    // 4. Ödeme Planı Yapılandırması
     if (Number(form.payment_down) > 0 || Number(form.payment_under_construction) > 0 || Number(form.payment_delivery) > 0 || Number(form.payment_installment) > 0) {
-      html += `<h3>💳 Ödeme Planı Yapılandırması</h3><ul>`;
+      html += `<h3><strong>Ödeme Planı Yapılandırması</strong></h3><ul>`;
       if (Number(form.payment_down) > 0) html += `<li><strong>Peşinat Oranı:</strong> %${form.payment_down}</li>`;
       if (Number(form.payment_under_construction) > 0) html += `<li><strong>İnşaat Süreci Ara Ödeme:</strong> %${form.payment_under_construction}</li>`;
       if (Number(form.payment_delivery) > 0) html += `<li><strong>Teslimat Esnası Ödeme:</strong> %${form.payment_delivery}</li>`;
@@ -212,18 +470,19 @@ export default function PropertyForm2() {
       html += `</ul>`;
     }
 
-    // 5. Seçilen Sosyal Donatılar
     if (selectedFeaturesItems.length > 0) {
-      html += `<h3>✨ Kompleks Özellikleri ve Sosyal Donatılar</h3>`;
+      html += `<h3><strong>Kompleks Özellikleri ve Sosyal Donatılar</strong></h3>`;
       html += `<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 5px;">`;
       selectedFeaturesItems.forEach(feat => {
-        html += `<span>${feat.emoji || feat.icon || '✔️'} ${feat.name}</span>`;
+        html += `<span>- ${feat.name}</span>`;
       });
       html += `</div>`;
     }
 
+    html += buildLocationDistanceHtml();
+
     set('description', html);
-    toast.success('Dolu alanlar filtrelenerek yeni liste formatında aktarıldı! 🚀');
+    toast.success('Dolu alanlar filtrelenerek açıklama metni başarıyla üretildi!');
   };
 
   const handleSubmit = (e) => {
@@ -286,8 +545,7 @@ export default function PropertyForm2() {
   const tabs = [
     { id: 'specs', label: '🛏️ Yapı & Fiyat' },
     { id: 'features', label: '✨ Özellik Seçimi' },
-    { id: 'desc', label: '📄 Detaylı İlan Metni' },
-    { id: 'seo', label: '🔍 SEO Yapılandırma' },
+    { id: 'seo', label: '🔍 Medya & SEO' },
   ];
 
   const totalPayment = (Number(form.payment_down) || 0) + (Number(form.payment_under_construction) || 0) + (Number(form.payment_delivery) || 0) + (Number(form.payment_installment) || 0);
@@ -297,7 +555,7 @@ export default function PropertyForm2() {
       {/* Üst Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-border rounded-2xl p-5 shadow-xs">
         <div className="flex items-center gap-3">
-          <Link to={`/properties/${id}`}>
+          <Link to={`/properties/step2/${id}`}>
             <Button variant="ghost" size="icon" className="text-gray-400 hover:text-gray-700">
               <ArrowLeft className="w-4 h-4" />
             </Button>
@@ -360,7 +618,49 @@ export default function PropertyForm2() {
                 <Building2 className="w-4 h-4 text-primary" /> Proje Detayları
               </h3>
               
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* GEM ENTEGRASYON ALANI */}
+              <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-4 space-y-3 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-emerald-100 rounded-xl p-3 shadow-xs">
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Gemini AI ile Detayları Otomatik Doldur
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground">
+                      Aşağıdaki butondan Gem şablonunu açıp gelen JSON verisini kopyalayın ve metin kutusuna yapıştırın.
+                    </p>
+                  </div>
+                  <Button asChild size="sm" variant="outline" className="border-emerald-500 text-emerald-700 bg-emerald-50/40 hover:bg-emerald-50 text-xs font-bold rounded-xl h-8 px-4 transition-all shrink-0">
+                    <a href="https://gemini.google.com/gem/1aBMDCmyLYc7hHgMB_BWOFL7woCtNsca1?usp=sharing" target="_blank" rel="noopener noreferrer">
+                      Gem Şablonunu Aç
+                    </a>
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <textarea
+                      placeholder='Örn: {"proje_adi": "Lory Queen Residence", "insaat_yili": 2015, "toplam_m2": 9318, "blok_sayisi": 5, "kat_sayisi": 5}'
+                      value={gemJsonInput}
+                      onChange={e => setGemJsonInput(e.target.value)}
+                      className="flex min-h-[60px] w-full rounded-xl border border-input bg-white px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20 resize-y font-mono text-foreground"
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleApplyGemProjectDetails}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 rounded-xl transition-all shadow-xs shrink-0 h-auto sm:w-32 flex items-center justify-center self-stretch"
+                    >
+                      Veriyi Aktar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Proje Detay Giriş Alanları */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="sm:col-span-1 lg:col-span-1">
+                  <Label className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">🏢 PROJE ADI</Label>
+                  <Input type="text" value={form.project_name || ''} onChange={e => set('project_name', e.target.value)} className="mt-1.5 border-emerald-200 focus-visible:ring-emerald-500" placeholder="Proje İsmi" />
+                </div>
                 <div>
                   <Label className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">📅 İNŞAAT YILI *</Label>
                   <Input 
@@ -368,7 +668,7 @@ export default function PropertyForm2() {
                     value={form.construction_year || ''} 
                     onChange={handleConstructionYearChange} 
                     className="mt-1.5 border-emerald-200 focus-visible:ring-emerald-500" 
-                    placeholder="06/2026"
+                    placeholder="06/2015"
                     maxLength={7}
                   />
                 </div>
@@ -662,114 +962,159 @@ export default function PropertyForm2() {
         {/* TAB 2: ÖZELLİK SEÇİMİ */}
         {activeTab === 'features' && (
           <div className="space-y-6">
-            <div className="bg-card rounded-xl border border-border p-5 space-y-4 shadow-2xs">
-              <div className="flex items-center gap-2 border-b pb-2.5">
-                <ShieldCheck className="w-4 h-4 text-teal-600" />
-                <div>
-                  <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Durum &amp; Regülasyon Kriterleri</h3>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Portföyün öne çıkan yasal ve coğrafi uygunluk durumlarını aktif edin</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
-                <div 
-                  onClick={() => set('citizenship_eligible', !form.citizenship_eligible)}
-                  className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
-                    form.citizenship_eligible 
-                      ? 'bg-teal-50/40 border-teal-500 ring-1 ring-teal-500/20' 
-                      : 'bg-white border-slate-100 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xl">🇹🇷</span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-700">Vatandaşlık</span>
-                      <span className="text-[10px] text-slate-400">Türk Vatandaşlığına Uygun</span>
-                    </div>
-                  </div>
-                  <Switch checked={!!form.citizenship_eligible} onCheckedChange={v => set('citizenship_eligible', v)} onClick={(e) => e.stopPropagation()} />
-                </div>
-
-                <div 
-                  onClick={() => set('residency_eligible', !form.residency_eligible)}
-                  className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
-                    form.residency_eligible 
-                      ? 'bg-indigo-50/40 border-indigo-500 ring-1 ring-indigo-500/20' 
-                      : 'bg-white border-slate-100 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xl">🪪</span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-700">İkamet İzni</span>
-                      <span className="text-[10px] text-slate-400">Oturuma Uygun</span>
-                    </div>
-                  </div>
-                  <Switch checked={!!form.residency_eligible} onCheckedChange={v => set('residency_eligible', v)} onClick={(e) => e.stopPropagation()} />
-                </div>
-
-                <div 
-                  onClick={() => set('sea_view', !form.sea_view)}
-                  className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
-                    form.sea_view 
-                      ? 'bg-cyan-50/40 border-cyan-500 ring-1 ring-cyan-500/20' 
-                      : 'bg-white border-slate-100 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xl">🌊</span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-700">Deniz Manzarası</span>
-                      <span className="text-[10px] text-slate-400">Görüş Açısı Mevcut</span>
-                    </div>
-                  </div>
-                  <Switch checked={!!form.sea_view} onCheckedChange={v => set('sea_view', v)} onClick={(e) => e.stopPropagation()} />
-                </div>
-
-                <div 
-                  onClick={() => set('seafront', !form.seafront)}
-                  className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
-                    form.seafront 
-                      ? 'bg-sky-50/40 border-sky-500 ring-1 ring-sky-500/20' 
-                      : 'bg-white border-slate-100 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xl">🏖️</span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-700">Denize Sıfır</span>
-                      <span className="text-[10px] text-slate-400">İlk Sahil Şeridi</span>
-                    </div>
-                  </div>
-                  <Switch checked={!!form.seafront} onCheckedChange={v => set('seafront', v)} onClick={(e) => e.stopPropagation()} />
-                </div>
-
-                <div 
-                  onClick={() => set('featured', !form.featured)}
-                  className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
-                    form.featured 
-                      ? 'bg-amber-50/40 border-amber-500 ring-1 ring-amber-500/20' 
-                      : 'bg-white border-slate-100 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xl">⭐</span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-700">Öne Çıkarılan</span>
-                      <span className="text-[10px] text-slate-400">Vitrin İlanı Yap</span>
-                    </div>
-                  </div>
-                  <Switch checked={!!form.featured} onCheckedChange={v => set('featured', v)} onClick={(e) => e.stopPropagation()} />
-                </div>
-              </div>
-            </div>
-
             <div className="bg-card rounded-xl border border-border p-5 space-y-5 shadow-2xs">
               <div className="flex items-center gap-2 border-b pb-2.5">
                 <CheckCircle2 className="w-4 h-4 text-teal-600" />
                 <div>
                   <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Sosyal Donatılar ve İlan Özellikleri</h3>
                   <p className="text-[11px] text-muted-foreground mt-0.5">propertiesforsaleturkey.com filtre altyapısı için listeden detaylı seçim yapın</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  ⭐ Öne Çıkan Kritik Portföy Özellikleri (Hızlı Seçim)
+                </Label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('citizenship')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isCitizenshipActive 
+                        ? 'bg-amber-50/70 border-amber-500 text-amber-800 shadow-xs font-bold ring-1 ring-amber-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">🇹🇷</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <Award className="w-3.5 h-3.5 text-amber-600" /> Citizenship
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('residency')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isResidencyActive 
+                        ? 'bg-blue-50/70 border-blue-500 text-blue-800 shadow-xs font-bold ring-1 ring-blue-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">🪪</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Residence Permit
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('sea_view')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isSeaViewActive 
+                        ? 'bg-cyan-50/70 border-cyan-500 text-cyan-800 shadow-xs font-bold ring-1 ring-cyan-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">🌊</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <Waves className="w-3.5 h-3.5 text-cyan-600" /> Sea View
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('seafront')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isSeafrontActive 
+                        ? 'bg-sky-100/60 border-sky-500 text-sky-800 shadow-xs font-bold ring-1 ring-sky-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">🏖️</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-sky-600" /> Seafront
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('near_the_sea')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isNearTheSeaActive 
+                        ? 'bg-emerald-50/70 border-emerald-500 text-emerald-800 shadow-xs font-bold ring-1 ring-emerald-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">⚓</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <Anchor className="w-3.5 h-3.5 text-emerald-600" /> Near the Sea
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('furniture')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isFurnitureActive 
+                        ? 'bg-purple-50/70 border-purple-500 text-purple-800 shadow-xs font-bold ring-1 ring-purple-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">🛋️</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <Sofa className="w-3.5 h-3.5 text-purple-600" /> Furniture
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => handleToggleSpecialFeature('white_goods')}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition-all cursor-pointer select-none text-center space-y-1.5 ${
+                      isWhiteGoodsActive 
+                        ? 'bg-indigo-50/70 border-indigo-500 text-indigo-800 shadow-xs font-bold ring-1 ring-indigo-500/10' 
+                        : 'bg-white border-slate-100 hover:border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-xl">📺</div>
+                    <span className="text-[11px] font-jakarta tracking-wide flex items-center gap-1">
+                      <Tv className="w-3.5 h-3.5 text-indigo-600" /> White Goods
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-4 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-white border border-teal-100 rounded-xl shadow-xs">
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-teal-600 animate-pulse" /> Sosyal Alan Seçici
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground">
+                      Gemini AI İle Özellikleri Eşleştir veya araştır
+                    </p>
+                  </div>
+                  <Button asChild size="sm" variant="outline" className="border-teal-500 text-teal-700 bg-teal-50/40 hover:bg-teal-50 text-xs font-bold rounded-xl h-8 px-4 transition-all">
+                    <a href="https://gemini.google.com/gem/f5571d60b8e3?usp=sharing" target="_blank" rel="noopener noreferrer">
+                      Gemini Araçlarını Aç
+                    </a>
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-teal-600 animate-pulse" /> METİNDEN TOPLU ÖZELLİK SEÇ (VİRGÜLLE VEYA ALT ALTA AYRILMIŞ)
+                  </Label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <textarea
+                      placeholder="Örn: Pool, Seafront, near-sea, Security, Elevator, Gym, Spa, Citizenship, Private Pool"
+                      value={bulkFeaturesText}
+                      onChange={e => setBulkFeaturesText(e.target.value)}
+                      className="flex min-h-[70px] w-full rounded-xl border border-input bg-white px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 border-slate-200 focus:border-teal-500 focus:ring-teal-500/20 resize-y"
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleApplyBulkFeatures}
+                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-5 rounded-xl transition-all shadow-xs shrink-0 h-auto sm:w-32 flex items-center justify-center self-stretch"
+                    >
+                      Eşleştir ve Seç
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    * Girdiğiniz kelimeler alttaki sistem özellikleri ile eşleştiğinde otomatik olarak aktif duruma getirilir.
+                  </p>
                 </div>
               </div>
 
@@ -843,71 +1188,214 @@ export default function PropertyForm2() {
           </div>
         )}
 
-        {/* TAB 3: DETAYLI İLAN METNİ */}
-        {activeTab === 'desc' && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-4 max-w-5xl mx-auto">
-            <div>
-              <h2 className="font-semibold font-jakarta text-foreground text-sm">Detaylı Gayrimenkul Tanıtım Metni</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Zengin metin editörünü kullanarak profesyonel HTML açıklama metni hazırlayın</p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Vitrin İlan Başlığı</Label>
-              <Input value={form.title || ''} onChange={e => set('title', e.target.value)} placeholder="Örn: Luxury 2+1 Penthouse Apartment in Alanya Center" />
-            </div>
-
-            <div className="pt-1">
-              <Button 
-                type="button"
-                variant="outline"
-                onClick={handleAutoGenerateDescription}
-                className="w-full sm:w-auto gap-2 border-teal-500 text-teal-700 bg-teal-50/40 hover:bg-teal-50 font-bold text-xs py-5 rounded-xl transition-all shadow-2xs"
-              >
-                <Sparkles className="w-4 h-4 text-teal-600 animate-pulse" />
-                Form Verilerinden Açıklama Metni Üret (Dolu Alanları Al)
-              </Button>
-            </div>
-
-            <div className="min-h-[400px] border rounded-lg overflow-hidden bg-white">
-              <ReactQuill
-                value={form.description || ''}
-                onChange={val => set('description', val)}
-                className="h-72"
-                theme="snow"
-                modules={{
-                  toolbar: [
-                    [{ 'header': [1, 2, 3, false] }],
-                    ['bold', 'italic', 'underline', 'strike'],
-                    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-                    ['link', 'clean']
-                  ]
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: SEO YAPILANDIRMA */}
+        {/* TAB 3: MEDYA & SEO */}
         {activeTab === 'seo' && (
-          <div className="bg-card rounded-xl border border-border p-6 max-w-5xl mx-auto">
-            <SeoAutoFill
-              title={form.title || form.project_name}
-              description={form.description?.replace(/<[^>]*>/g, '').slice(0, 150)}
-              city={form.city}
-              type={form.type}
-              price={form.price}
-              currency={form.currency}
-              form={form}
-              onUpdate={(updates) => setForm(f => ({ ...f, ...updates }))}
-            />
+          <div className="space-y-6 max-w-5xl mx-auto">
             
-            <div className="border-t pt-5 mt-5 space-y-4">
-              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">🖼️ İlan Ana Görsel Kaynağı</h3>
-              <div>
-                <Label className="text-xs">Ana Görsel URL (VTR Resim)</Label>
-                <Input value={form.main_image || ''} onChange={e => set('main_image', e.target.value)} className="mt-1.5 font-mono text-xs" placeholder="https://propertiesforsaleturkey.com/images/..." />
+            <div className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-4">
+              <div className="pt-1">
+                <Button 
+                  type="button"
+                  variant="outline"
+                  onClick={handleAutoGenerateDescription}
+                  className="gap-2 border-teal-500 text-teal-700 bg-white hover:bg-teal-50 font-bold text-xs py-5 rounded-full transition-all shadow-sm"
+                >
+                  <Sparkles className="w-4 h-4 text-teal-600" />
+                  Form Verilerinden Açıklama Metni Üret (Dolu Alanları Al)
+                </Button>
+              </div>
+
+              <div className="min-h-[400px] border border-slate-200 rounded-lg overflow-hidden bg-white">
+                <ReactQuill
+                  value={form.description || ''}
+                  onChange={val => set('description', val)}
+                  className="h-72"
+                  theme="snow"
+                  modules={{
+                    toolbar: [
+                      [{ 'header': [1, 2, 3, false] }],
+                      ['bold', 'italic', 'underline', 'strike'],
+                      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                      ['link', 'clean']
+                    ]
+                  }}
+                />
               </div>
             </div>
+
+            {/* GOOGLE SERP ÖNİZLEMESİ */}
+            <div className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-primary" /> Google SERP Önizlemesi
+                </h3>
+                <Button asChild size="sm" variant="outline" className="border-teal-500 text-teal-700 bg-teal-50/40 hover:bg-teal-50 text-xs font-bold rounded-xl h-8 px-4 transition-all shrink-0">
+                  <a href="https://gemini.google.com/gem/18cQn6ttRnjpD_X0BL474UpmBF6Vnbbcu?usp=sharing" target="_blank" rel="noopener noreferrer">
+                    Title / Meta Title / Description / Content Gem
+                  </a>
+                </Button>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-4 max-w-xl">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                    <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                  </div>
+                  <div className="leading-tight">
+                    <p className="text-[13px] text-slate-800">propertiesforsaleturkey.com</p>
+                    <p className="text-[12px] text-slate-500 truncate">
+                      https://propertiesforsaleturkey.com/property/{form.slug || 'ornek-url-slug'}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[18px] text-[#1a0dab] leading-snug mt-1 truncate">
+                  {form.meta_title || form.seo_title || 'Meta başlığınız burada görünecek'}
+                </p>
+                <p className="text-[13px] text-[#4d5156] leading-snug mt-1 line-clamp-2">
+                  {form.meta_description || 'Meta açıklamanız burada görünecek. SEO Ayarları kısmından Meta Description alanını doldurun.'}
+                </p>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                * Bu önizleme Meta Title ve Meta Description alanlarına göre canlı olarak güncellenir.
+              </p>
+
+              {form.seo_content && (
+                <div className="pt-3 border-t border-border space-y-2">
+                  <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    SEO Content Önizlemesi
+                  </Label>
+                  <div
+                    className="prose prose-sm max-w-none max-h-[420px] overflow-y-auto border border-slate-100 rounded-lg p-4 bg-slate-50/40 text-slate-800 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-0 [&_h3]:text-sm [&_h3]:font-bold [&_h4]:text-xs [&_h4]:font-bold [&_p]:text-xs [&_p]:leading-relaxed [&_li]:text-xs [&_ul]:list-disc [&_ul]:pl-5"
+                    dangerouslySetInnerHTML={{ __html: form.seo_content }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* SEO AYARLARI - JSON OTOMATİK DOLDURMA */}
+            <div className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+                <div>
+                  <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">SEO Ayarları</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    JSON formatındaki SEO verisini yapıştırarak alanları otomatik doldurun
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowSeoJsonBox(v => !v)}
+                  className="gap-2 border-teal-500 text-teal-700 bg-white hover:bg-teal-50 font-bold text-xs rounded-xl h-9 px-4 shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                  SEO'yu Otomatik Tamamla
+                </Button>
+              </div>
+
+              {showSeoJsonBox && (
+                <div className="bg-teal-50/40 border border-teal-100 rounded-xl p-4 space-y-2">
+                  <Label className="text-[11px] font-bold text-teal-700">
+                    JSON Verisini Yapıştır (url_slug / "URL Slug", seo_title / "SEO Title", meta_title / "Meta Title", meta_description / "Meta Description", seo_content / "SEO Content")
+                  </Label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <textarea
+                      placeholder='Örn: {"url_slug": "...", "seo_title": "...", "meta_title": "...", "meta_description": "...", "seo_content": "..."}'
+                      value={seoJsonInput}
+                      onChange={e => setSeoJsonInput(e.target.value)}
+                      className="flex min-h-[100px] w-full rounded-xl border border-input bg-white px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border-teal-200 focus:border-teal-500 focus:ring-teal-500/20 resize-y font-mono text-foreground"
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleApplySeoJson}
+                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-5 rounded-xl transition-all shadow-xs shrink-0 h-auto sm:w-32 flex items-center justify-center self-stretch"
+                    >
+                      Verileri Aktar
+                    </Button>
+                  </div>
+
+                  {/* CANLI JSON ÖNİZLEMESİ */}
+                  {seoJsonPreview?.error && (
+                    <p className="text-[11px] font-semibold text-rose-600">⚠️ {seoJsonPreview.error}</p>
+                  )}
+
+                  {seoJsonPreview?.data && (
+                    <div className="bg-white border border-teal-100 rounded-xl p-4 space-y-3 mt-1">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-teal-700 uppercase tracking-wider border-b border-teal-50 pb-2">
+                        <Sparkles className="w-3.5 h-3.5 text-teal-600" /> Önizleme — Aktarmadan Önce Kontrol Edin
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        {seoJsonPreview.data.slug && (
+                          <div className="sm:col-span-2">
+                            <span className="font-bold text-slate-500">URL Slug:</span>{' '}
+                            <span className="font-mono text-slate-700">/property/{seoJsonPreview.data.slug}</span>
+                          </div>
+                        )}
+                        {seoJsonPreview.data.seo_title && (
+                          <div className="sm:col-span-2">
+                            <span className="font-bold text-slate-500">SEO Title:</span>{' '}
+                            <span className="text-slate-700">{seoJsonPreview.data.seo_title}</span>
+                          </div>
+                        )}
+                        {seoJsonPreview.data.meta_title && (
+                          <div className="sm:col-span-2">
+                            <span className="font-bold text-slate-500">Meta Title:</span>{' '}
+                            <span className="text-[#1a0dab]">{seoJsonPreview.data.meta_title}</span>
+                          </div>
+                        )}
+                        {seoJsonPreview.data.meta_description && (
+                          <div className="sm:col-span-2">
+                            <span className="font-bold text-slate-500">Meta Description:</span>{' '}
+                            <span className="text-[#4d5156]">{seoJsonPreview.data.meta_description}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {seoJsonPreview.data.seo_content && (
+                        <div>
+                          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            SEO Content Önizlemesi
+                          </div>
+                          <div
+                            className="prose prose-sm max-w-none max-h-[420px] overflow-y-auto border border-slate-100 rounded-lg p-4 bg-slate-50/40 text-slate-800 [&_h2]:text-base [&_h2]:font-bold [&_h3]:text-sm [&_h3]:font-bold [&_h4]:text-xs [&_h4]:font-bold [&_p]:text-xs [&_p]:leading-relaxed [&_li]:text-xs [&_ul]:list-disc [&_ul]:pl-5 [&_h2]:mt-0"
+                            dangerouslySetInnerHTML={{ __html: seoJsonPreview.data.seo_content }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">URL Slug</Label>
+                  <Input value={form.slug || ''} onChange={e => set('slug', e.target.value)} className="mt-1.5 font-mono text-xs" placeholder="ornek-url-slug" />
+                </div>
+                <div>
+                  <Label className="text-xs">SEO Title</Label>
+                  <Input value={form.seo_title || ''} onChange={e => set('seo_title', e.target.value)} className="mt-1.5 text-xs" placeholder="SEO başlığı" />
+                </div>
+                <div>
+                  <Label className="text-xs">Meta Title</Label>
+                  <Input value={form.meta_title || ''} onChange={e => set('meta_title', e.target.value)} className="mt-1.5 text-xs" placeholder="Meta başlık" />
+                </div>
+                <div>
+                  <Label className="text-xs">Meta Description</Label>
+                  <Input value={form.meta_description || ''} onChange={e => set('meta_description', e.target.value)} className="mt-1.5 text-xs" placeholder="Meta açıklama" />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs">SEO Content</Label>
+                <textarea
+                  value={form.seo_content || ''}
+                  onChange={e => set('seo_content', e.target.value)}
+                  className="mt-1.5 w-full min-h-[180px] rounded-xl border border-input bg-white px-3 py-2 text-xs resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/20 focus:border-teal-500"
+                  placeholder="SEO içeriği (markdown/metin)"
+                />
+              </div>
+            </div>
+
           </div>
         )}
       </div>

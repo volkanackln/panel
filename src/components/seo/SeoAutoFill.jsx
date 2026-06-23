@@ -91,7 +91,6 @@ Return:
 1. seo_title: Max 60 chars. Include property type, city, and "for sale in Turkey". No clickbait.
 2. seo_description: Max 155 chars. Highlight key features, location, investment angle. Natural English.
 3. slug: URL-friendly slug using hyphens, lowercase. Include city, type, and key detail. Max 60 chars.
-4. seo_keywords: 5-7 comma-separated keywords including long-tail variants.
 
 Important: Return ONLY valid JSON, no explanations.`,
       response_json_schema: {
@@ -100,7 +99,6 @@ Important: Return ONLY valid JSON, no explanations.`,
           seo_title: { type: 'string' },
           seo_description: { type: 'string' },
           slug: { type: 'string' },
-          seo_keywords: { type: 'string' },
         }
       }
     });
@@ -194,16 +192,6 @@ Important: Return ONLY valid JSON, no explanations.`,
               placeholder="istanbul-besiktas-sea-view-apartment"
             />
           </div>
-        </div>
-
-        <div>
-          <Label>Anahtar Kelimeler</Label>
-          <Input
-            value={form.seo_keywords || ''}
-            onChange={e => onUpdate({ seo_keywords: e.target.value })}
-            className="mt-1.5"
-            placeholder="istanbul apartment for sale, sea view property turkey, ..."
-          />
         </div>
       </div>
     </div>
